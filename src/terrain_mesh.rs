@@ -7,6 +7,12 @@ pub struct TerrainMeshOptions {
     pub height_scale: f32,
 }
 
+pub struct TerrainTile {
+    pub x: u32,
+    pub y: u32,
+    pub z: u32,
+}
+
 fn get_normal(v1: &[f32; 3], v2: &[f32; 3], v3: &[f32; 3]) -> [f32; 3] {
     let a = [v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2]];
     let b = [v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]];
@@ -140,7 +146,7 @@ pub fn setup_terrain(
         roughness: 1.,
         metallic: 0.,
         reflectance: 0.,
-        // unlit: true,
+        unlit: true,
         ..Default::default()
     });
 
@@ -186,17 +192,19 @@ pub fn setup_terrain(
     mesh.set_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     mesh.set_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
 
-    commands.spawn_bundle(PbrBundle {
-        transform: Transform {
-            translation: Vec3::new(
-                -(WIDTH as f32 * scale_factor / 2.),
-                0.,
-                -(LENGTH as f32 * scale_factor / 2.),
-            ),
+    commands
+        .spawn_bundle(PbrBundle {
+            transform: Transform {
+                translation: Vec3::new(
+                    -(WIDTH as f32 * scale_factor / 2.),
+                    0.,
+                    -(LENGTH as f32 * scale_factor / 2.),
+                ),
+                ..Default::default()
+            },
+            mesh: meshes.add(mesh),
+            material: material_handle,
             ..Default::default()
-        },
-        mesh: meshes.add(mesh),
-        material: material_handle,
-        ..Default::default()
-    });
+        })
+        .insert(TerrainTile { x: 0, y: 0, z: 0 });
 }

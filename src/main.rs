@@ -17,6 +17,7 @@ use camera_utils::*;
 mod map_services;
 use map_services::*;
 
+#[derive(Debug, Clone, Copy)]
 struct UserPosition {
     lat: f64,
     lon: f64,
@@ -38,6 +39,8 @@ fn main() {
         .add_system(emit_mouse_events.system())
         .add_system(camera_motion_system.system())
         .add_system(handle_tasks.system())
+        .add_system(on_camera_updated.system())
+        .add_system(on_user_position_updated.system())
         .run();
 }
 
@@ -70,11 +73,17 @@ fn handle_tasks(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
+    current_tiles: Query<Entity, With<TerrainTile>>
 ) {
     for (entity, mut task) in query_tasks.iter_mut() {
         if let Some((topo_filename, image_filename)) =
             future::block_on(future::poll_once(&mut *task))
         {
+
+            for tile in current_tiles.iter() {
+                commands.entity(tile).despawn();
+            }
+
             setup_terrain(
                 &mut commands,
                 &mut meshes,
@@ -105,7 +114,7 @@ fn setup(mut commands: Commands) {
         .insert(OrbitCamera {
             x: 45.,
             y: 30.,
-            zoom: 100.
+            zoom: 100.,
         });
 
     commands.spawn_bundle(LightBundle {
@@ -117,4 +126,56 @@ fn setup(mut commands: Commands) {
         },
         ..Default::default()
     });
+
+    commands.spawn().insert(UserPosition {
+        lat: 36.253128,
+        lon: -112.521346,
+        zoom: 13,
+    });
+}
+
+fn on_camera_updated(
+    camera_query: Query<&OrbitCamera, Changed<OrbitCamera>>,
+    mut user_position_query: Query<&mut UserPosition>,
+) {
+    for camera in camera_query.iter() {
+        for mut user_position in user_position_query.iter_mut() {
+            let new_zoom = (14. - (camera.zoom / 50.)) as u32;
+            if user_position.zoom != new_zoom {
+                user_position.zoom = new_zoom;
+            }
+        }
+    }
+}
+
+fn on_user_position_updated(
+    query: Query<&UserPosition, Changed<UserPosition>>,
+    mut commands: Commands,
+    thread_pool: Res<AsyncComputeTaskPool>,
+) {
+    if let Ok(current_pos) = query.single() {
+        
+        let user_pos = current_pos.clone();
+        
+        let task = thread_pool.spawn(async move {
+            println!("{:?}", user_pos);
+
+            let (x, y) = deg2num(user_pos.lat, user_pos.lon, user_pos.zoom);
+
+            let topo_filename = async_compat::Compat::new(async {
+                get_arcgis_topo_tile(x, y, user_pos.zoom).await
+            })
+            .await
+            .unwrap_or("".to_string());
+
+            let image_filename = async_compat::Compat::new(async {
+                get_arcgis_image_tile(x, y, user_pos.zoom).await
+            })
+            .await
+            .unwrap_or("".to_string());
+
+            (topo_filename, image_filename)
+        });
+        commands.spawn().insert(task);
+    }
 }

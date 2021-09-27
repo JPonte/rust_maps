@@ -81,7 +81,7 @@ pub fn camera_motion_system(
                     }
                 }
                 &MouseEvents::Zoom(delta) => {
-                    camera.zoom -= delta * time.delta_seconds() * 20.;
+                    camera.zoom = (camera.zoom - delta * time.delta_seconds() * 20.).max(10.);
                 }
             }
         }

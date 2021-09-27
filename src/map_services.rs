@@ -31,7 +31,6 @@ pub async fn _get_opentopography_tile(
     let (north, west) = num2deg(x, y, z);
     let (south, east) = num2deg(x + 1, y + 1, z);
     let url = format!("https://portal.opentopography.org/API/globaldem?demtype=SRTMGL1&west={}&east={}&south={}&north={}&outputFormat=GTiff", west, east, south, north);
-    println!("{}", url);
     let filename = format!("assets/images/topo_{}_{}_{}.tiff", x, y, z);
     download_to_file(&url, &filename).await?;
     Ok(filename)
@@ -54,9 +53,7 @@ pub async fn get_arcgis_image_tile(
     z: u32,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let url = format!("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{}/{}/{}", z, y, x);
-    println!("{}", url);
     let filename = format!("assets/images/imagery_{}_{}_{}.jpeg", x, y, z);
     download_to_file(&url, &filename).await?;
-    println!("Done!");
     Ok(filename)
 }
