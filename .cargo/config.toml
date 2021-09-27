@@ -20,3 +20,8 @@ rustflags = ["-Zshare-generics=off"]
 # In most cases the gains are negligible, but if you are on macos and have slow compile times you should see significant gains.
 #[profile.dev]
 #debug = 1
+
+[env]
+LLVM_CONFIG_PATH = "/usr/local/opt/llvm/bin/llvm-config"
+LERC_LIB_DIR = { value = "lerc-3.0/bin/MacOS", relative = true }
+LERC_INCLUDE_DIR = { value = "lerc-3.0/src/LercLib/include", relative = true }

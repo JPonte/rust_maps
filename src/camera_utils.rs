@@ -1,9 +1,24 @@
 use bevy::input::mouse::MouseMotion;
 use bevy::input::mouse::MouseScrollUnit;
 use bevy::input::mouse::MouseWheel;
-use bevy::{prelude::*, render::camera::*};
+use bevy::prelude::*;
 
-pub struct OrbitCamera;
+#[derive(Debug)]
+pub struct OrbitCamera {
+    pub x: f32,
+    pub y: f32,
+    pub zoom: f32,
+}
+
+impl Default for OrbitCamera {
+    fn default() -> OrbitCamera {
+        OrbitCamera {
+            x: 0.,
+            y: 0.,
+            zoom: 10.,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum MouseEvents {
@@ -42,29 +57,38 @@ pub fn emit_mouse_events(
 pub fn camera_motion_system(
     time: Res<Time>,
     mut events: EventReader<MouseEvents>,
-    mut query: Query<(&mut Transform, &mut Camera), With<OrbitCamera>>,
+    mut query: Query<(&mut Transform, &mut OrbitCamera)>,
 ) {
-    if let Ok((mut camera_transform, camera)) = query.single_mut() {
+    if let Ok((mut camera_transform, mut camera)) = query.single_mut() {
         for event in events.iter() {
             match event {
                 &MouseEvents::Drag(delta) => {
-                    let rot_y =
-                        Quat::from_axis_angle(Vec3::Y, delta.x * time.delta_seconds() * -0.5);
-                    let rot_x =
-                        Quat::from_axis_angle(Vec3::X, delta.y * time.delta_seconds() * 0.5);
+                    camera.x -= delta.x * time.delta_seconds() * 10.;
+                    camera.y += delta.y * time.delta_seconds() * 10.;
 
-                    camera_transform.translation = rot_x * rot_y * camera_transform.translation;
+                    while camera.x > 360. {
+                        camera.x -= 360.;
+                    }
+                    while camera.x < 0. {
+                        camera.x += 360.;
+                    }
 
-                    camera_transform.look_at(Vec3::ZERO, Vec3::Y);
+                    while camera.y > 360. {
+                        camera.y -= 360.;
+                    }
+                    while camera.y < 0. {
+                        camera.y += 360.;
+                    }
                 }
                 &MouseEvents::Zoom(delta) => {
-                    let delta_vec = camera_transform.translation.normalize_or_zero()
-                        * delta
-                        * time.delta_seconds()
-                        * -20.;
-                    camera_transform.translation += delta_vec;
+                    camera.zoom -= delta * time.delta_seconds() * 20.;
                 }
             }
         }
+
+        camera_transform.translation = Quat::from_axis_angle(Vec3::Y, camera.x.to_radians())
+            * Quat::from_axis_angle(Vec3::Z, camera.y.to_radians())
+            * (Vec3::X * camera.zoom);
+        camera_transform.look_at(Vec3::ZERO, Vec3::Y);
     }
 }

@@ -1,9 +1,5 @@
 use bevy::prelude::*;
-use gdal::raster::{Buffer, ResampleAlg};
-use gdal::{Dataset, DatasetOptions, GdalOpenFlags};
-use std::path::Path;
-
-use image::{self, ImageBuffer, Luma};
+use std::fs::File;
 
 pub struct TerrainMeshOptions {
     pub width: u32,
@@ -24,21 +20,21 @@ fn cross(a: &[f32; 3], b: &[f32; 3]) -> [f32; 3] {
     [nx, ny, nz]
 }
 
-fn get_height(x: u32, y: u32, heightmap: &Buffer<f32>) -> f32 {
-    heightmap.data[x as usize + y as usize * heightmap.size.1]
+fn get_height(x: u32, y: u32, heightmap: &lerc::LercDataset) -> f32 {
+    heightmap.data[x as usize + y as usize * heightmap.info.n_cols as usize] as f32
 }
 
 fn sample_heightmap(
     x: u32,
     y: u32,
-    heightmap: &Buffer<f32>,
+    heightmap: &lerc::LercDataset,
     mesh_options: &TerrainMeshOptions,
-    min: f32,
-    max: f32,
 ) -> (f32, [f32; 3]) {
-    let factor = 256. / (max - min);
+    let factor = (256. / (heightmap.data_range.z_max - heightmap.data_range.z_min)) as f32;
 
-    let height = (get_height(x, y, heightmap) - min) * factor * mesh_options.height_scale;
+    let height = (get_height(x, y, heightmap) - heightmap.data_range.z_min as f32)
+        * factor
+        * mesh_options.height_scale;
 
     let target = [0., height, 0.];
     let right = [
@@ -94,73 +90,41 @@ pub fn mesh_from_heightmap(
     mesh_options: TerrainMeshOptions,
     scale_factor: f32,
 ) -> Vec<([f32; 3], [f32; 3], [f32; 2])> {
-    let dataset = Dataset::open_ex(
-        Path::new(&filename),
-        DatasetOptions {
-            open_flags: GdalOpenFlags::GDAL_OF_READONLY | GdalOpenFlags::GDAL_OF_VERBOSE_ERROR,
-            ..Default::default()
-        },
-    );
-    if let Ok(dataset) = dataset {
+    let lerc_dataset = lerc::decode_file(File::open(filename).unwrap());
+
+    if let Ok(dataset) = lerc_dataset {
         println!(
-            "Driver: {} / Layers: {} / Rasters: {}",
-            dataset.driver().long_name(),
-            dataset.layer_count(),
-            dataset.raster_count()
+            "Info: {:?} / Data Range: {:?} / Data length: {}",
+            dataset.info,
+            dataset.data_range,
+            dataset.data.len()
         );
-        let band = dataset.rasterband(1).unwrap();
-        println!(
-            "RasterBand: Block Size: {:?} / Band Type: {} / Color interpretation: {:?}",
-            band.block_size(),
-            band.band_type(),
-            band.color_interpretation()
-        );
-        if let Ok(heightmap) = band.read_as::<f32>(
-            (0, 0),
-            band.size(),
-            (mesh_options.width as usize, mesh_options.length as usize),
-            Some(ResampleAlg::CubicSpline),
-        ) {
-            let min = heightmap
-                .data
-                .iter()
-                .reduce(|a, b| if a < b { a } else { b })
-                .unwrap_or(&0.);
-            let max = heightmap
-                .data
-                .iter()
-                .reduce(|a, b| if a > b { a } else { b })
-                .unwrap_or(&0.);
-            let mut vertices_vec = Vec::new();
-            for y in 0..(mesh_options.length - 0) {
-                for x in 0..(mesh_options.width - 0) {
-                    let (height, normal) =
-                        sample_heightmap(x, y, &heightmap, &mesh_options, min.clone(), max.clone());
-                    let vertex = [
-                        x as f32 * scale_factor,
-                        height * scale_factor,
-                        y as f32 * scale_factor,
-                    ];
-                    let uv = [
-                        x as f32 / mesh_options.width as f32,
-                        y as f32 / mesh_options.length as f32,
-                    ];
-                    vertices_vec.push((vertex, normal, uv));
-                }
+
+        let mut vertices_vec = Vec::new();
+        for y in 0..(mesh_options.length - 0) {
+            for x in 0..(mesh_options.width - 0) {
+                let (height, normal) = sample_heightmap(x, y, &dataset, &mesh_options);
+                let vertex = [
+                    x as f32 * scale_factor,
+                    height * scale_factor,
+                    y as f32 * scale_factor,
+                ];
+                let uv = [
+                    x as f32 / mesh_options.width as f32,
+                    y as f32 / mesh_options.length as f32,
+                ];
+                vertices_vec.push((vertex, normal, uv));
             }
-            vertices_vec
-        } else {
-            println!("Failed to parse {}", filename);
-            Vec::new()
         }
+        vertices_vec
     } else {
         println!("Failed to read {}", filename);
         Vec::new()
     }
 }
 
-const WIDTH: u32 = 256;
-const LENGTH: u32 = 256;
+const WIDTH: u32 = 257;
+const LENGTH: u32 = 257;
 
 pub fn setup_terrain(
     commands: &mut Commands,

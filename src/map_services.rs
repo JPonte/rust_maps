@@ -12,7 +12,6 @@ async fn download_to_file(url: &str, filename: &str) -> Result<(), Box<dyn std::
             let client = reqwest::Client::new();
             let resp = client
                 .get(url)
-                .header("Referer", "https://www.google.com/maps")
                 .send()
                 .await?
                 .bytes()
@@ -24,7 +23,7 @@ async fn download_to_file(url: &str, filename: &str) -> Result<(), Box<dyn std::
     }
 }
 
-pub async fn get_opentopography_tile(
+pub async fn _get_opentopography_tile(
     x: u32,
     y: u32,
     z: u32,
@@ -38,14 +37,13 @@ pub async fn get_opentopography_tile(
     Ok(filename)
 }
 
-// TODO: figure out why are the lerc files clamped :(
-pub async fn _get_arcgis_topo_tile(
+pub async fn get_arcgis_topo_tile(
     x: u32,
     y: u32,
     z: u32,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let url = format!("https://services.arcgisonline.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer/tile/{}/{}/{}", z, y, x);
-    let filename = format!("images/topo_{}_{}_{}.lerc", x, y, z);
+    let filename = format!("assets/images/topo_{}_{}_{}.lerc", x, y, z);
     download_to_file(&url, &filename).await?;
     Ok(filename)
 }

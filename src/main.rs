@@ -45,12 +45,12 @@ fn query_stuff(mut commands: Commands, thread_pool: Res<AsyncComputeTaskPool>) {
     let task = thread_pool.spawn(async move {
         let lat = 36.253128;
         let lon = -112.521346;
-        let z = 6;
+        let z = 13;
 
         let (x, y) = deg2num(lat, lon, z);
 
         let topo_filename =
-            async_compat::Compat::new(async { get_opentopography_tile(x, y, z).await })
+            async_compat::Compat::new(async { get_arcgis_topo_tile(x, y, z).await })
                 .await
                 .unwrap_or("".to_string());
 
@@ -102,7 +102,11 @@ fn setup(mut commands: Commands) {
             },
             ..Default::default()
         })
-        .insert(OrbitCamera);
+        .insert(OrbitCamera {
+            x: 45.,
+            y: 30.,
+            zoom: 100.
+        });
 
     commands.spawn_bundle(LightBundle {
         transform: Transform::from_translation(Vec3::new(0., 50., 0.)),
