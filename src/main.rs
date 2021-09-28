@@ -3,6 +3,7 @@ use bevy::{
     render::camera::*,
     tasks::{AsyncComputeTaskPool, Task},
 };
+use bevy_egui::{egui, EguiContext, EguiPlugin};
 use futures_lite::future;
 
 mod terrain_mesh;
@@ -32,9 +33,15 @@ fn main() {
             ..Default::default()
         })
         .add_plugins(DefaultPlugins)
-        .insert_resource(ClearColor(Color::rgb(0.3, 0.56, 0.83)))
+        .insert_resource(ClearColor(Color::rgb(0., 0., 0.)))
+        .insert_resource(UiState {
+            detail_level: 10,
+            lat: "38.272688".to_string(),
+            lon: "-120.234375".to_string(),
+        })
         .add_event::<MouseEvents>()
-        .add_startup_system(query_stuff.system())
+        .add_plugin(EguiPlugin)
+        .add_system(controls.system())
         .add_startup_system(setup.system())
         .add_system(emit_mouse_events.system())
         .add_system(camera_motion_system.system())
@@ -44,56 +51,35 @@ fn main() {
         .run();
 }
 
-fn query_stuff(mut commands: Commands, thread_pool: Res<AsyncComputeTaskPool>) {
-    let task = thread_pool.spawn(async move {
-        let lat = 36.253128;
-        let lon = -112.521346;
-        let z = 13;
-
-        let (x, y) = deg2num(lat, lon, z);
-
-        let topo_filename =
-            async_compat::Compat::new(async { get_arcgis_topo_tile(x, y, z).await })
-                .await
-                .unwrap_or("".to_string());
-
-        let image_filename =
-            async_compat::Compat::new(async { get_arcgis_image_tile(x, y, z).await })
-                .await
-                .unwrap_or("".to_string());
-
-        (topo_filename, image_filename)
-    });
-    commands.spawn().insert(task);
-}
-
 fn handle_tasks(
     mut commands: Commands,
-    mut query_tasks: Query<(Entity, &mut Task<(String, String)>)>,
+    mut query_tasks: Query<(Entity, &mut Task<TileInfo>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
-    current_tiles: Query<Entity, With<TerrainTile>>
+    current_tiles: Query<(Entity, &TileInfo)>,
+    user_position_query: Query<&UserPosition>,
 ) {
-    for (entity, mut task) in query_tasks.iter_mut() {
-        if let Some((topo_filename, image_filename)) =
-            future::block_on(future::poll_once(&mut *task))
-        {
+    let user_pos = user_position_query.single().unwrap();
+    for (tile_entity, tile) in current_tiles.iter() {
+        if tile.z != user_pos.zoom || tile.base_lat != user_pos.lat || tile.base_lon != user_pos.lon {
+            commands.entity(tile_entity).despawn();
+        }
+    }
 
-            for tile in current_tiles.iter() {
-                commands.entity(tile).despawn();
+    for (entity, mut task) in query_tasks.iter_mut() {
+        if let Some(tile_info) = future::block_on(future::poll_once(&mut *task)) {
+            if tile_info.z == user_pos.zoom {
+                setup_terrain(
+                    &mut commands,
+                    &mut meshes,
+                    &mut materials,
+                    &asset_server,
+                    tile_info,
+                );
             }
 
-            setup_terrain(
-                &mut commands,
-                &mut meshes,
-                &mut materials,
-                &asset_server,
-                &image_filename[7..],
-                topo_filename.as_str(),
-            );
-
-            commands.entity(entity).remove::<Task<(String, String)>>();
+            commands.entity(entity).remove::<Task<TileInfo>>().despawn();
         }
     }
 }
@@ -128,21 +114,25 @@ fn setup(mut commands: Commands) {
     });
 
     commands.spawn().insert(UserPosition {
-        lat: 36.253128,
-        lon: -112.521346,
-        zoom: 13,
+        lat: 38.272688,
+        lon: -120.234375,
+        zoom: 10,
     });
 }
 
-fn on_camera_updated(
-    camera_query: Query<&OrbitCamera, Changed<OrbitCamera>>,
-    mut user_position_query: Query<&mut UserPosition>,
-) {
-    for camera in camera_query.iter() {
-        for mut user_position in user_position_query.iter_mut() {
-            let new_zoom = (14. - (camera.zoom / 50.)) as u32;
-            if user_position.zoom != new_zoom {
-                user_position.zoom = new_zoom;
+fn on_camera_updated(ui_state: Res<UiState>, mut user_position_query: Query<&mut UserPosition>) {
+    for mut user_position in user_position_query.iter_mut() {
+        if user_position.zoom != ui_state.detail_level {
+            user_position.zoom = ui_state.detail_level;
+        }
+        if let Ok(ui_lat) = ui_state.lat.parse::<f64>() {
+            if user_position.lat != ui_lat {
+                user_position.lat = ui_lat;
+            }
+        }
+        if let Ok(ui_lon) = ui_state.lon.parse::<f64>() {
+            if user_position.lon != ui_lon {
+                user_position.lon = ui_lon;
             }
         }
     }
@@ -153,29 +143,69 @@ fn on_user_position_updated(
     mut commands: Commands,
     thread_pool: Res<AsyncComputeTaskPool>,
 ) {
-    if let Ok(current_pos) = query.single() {
-        
-        let user_pos = current_pos.clone();
-        
-        let task = thread_pool.spawn(async move {
-            println!("{:?}", user_pos);
+    if let Ok(user_pos) = query.single() {
+        println!("{:?}", user_pos);
 
-            let (x, y) = deg2num(user_pos.lat, user_pos.lon, user_pos.zoom);
+        let min_zoom = 9;
+        let (top_x, top_y) = deg2num(user_pos.lat, user_pos.lon, user_pos.zoom);
+        let lat = user_pos.lat;
+        let lon = user_pos.lon;
+        let z = user_pos.zoom;
 
-            let topo_filename = async_compat::Compat::new(async {
-                get_arcgis_topo_tile(x, y, user_pos.zoom).await
-            })
-            .await
-            .unwrap_or("".to_string());
+        if user_pos.zoom > min_zoom {
+            let n = user_pos.zoom - min_zoom;
+            for x_i in 0..(n * n) {
+                for y_i in 0..(n * n) {
+                    let x = top_x + x_i;
+                    let y = top_y + y_i;
 
-            let image_filename = async_compat::Compat::new(async {
-                get_arcgis_image_tile(x, y, user_pos.zoom).await
-            })
-            .await
-            .unwrap_or("".to_string());
+                    let task = thread_pool.spawn(async move {
+                        let topo_filename = async_compat::Compat::new(async {
+                            get_arcgis_topo_tile(x, y, z).await
+                        })
+                        .await
+                        .unwrap_or("".to_string());
 
-            (topo_filename, image_filename)
-        });
-        commands.spawn().insert(task);
+                        let image_filename = async_compat::Compat::new(async {
+                            get_arcgis_image_tile(x, y, z).await
+                        })
+                        .await
+                        .unwrap_or("".to_string());
+
+                        TileInfo {
+                            base_lat: lat,
+                            base_lon: lon,
+                            x_offset: x_i,
+                            y_offset: y_i,
+                            z,
+                            topo_filename,
+                            image_filename,
+                        }
+                    });
+                    commands.spawn().insert(task);
+                }
+            }
+        }
     }
+}
+
+struct UiState {
+    detail_level: u32,
+    lat: String,
+    lon: String,
+}
+
+fn controls(egui_context: ResMut<EguiContext>, mut ui_state: ResMut<UiState>) {
+    egui::Window::new("Settings").show(egui_context.ctx(), |ui| {
+        ui.add(egui::Slider::new(&mut ui_state.detail_level, 10..=13).text("Detail"));
+        ui.horizontal(|ui| {
+            ui.label("Latitude: ");
+            ui.text_edit_singleline(&mut ui_state.lat);
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Longitude: ");
+            ui.text_edit_singleline(&mut ui_state.lon);
+        });
+    });
 }

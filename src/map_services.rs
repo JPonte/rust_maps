@@ -5,7 +5,7 @@ use std::fs::File;
 async fn download_to_file(url: &str, filename: &str) -> Result<(), Box<dyn std::error::Error>> {
     match File::open(filename) {
         Ok(_) => {
-            println!("File exists");
+            // println!("File exists");
             Ok(())
         }
         Err(_) => {

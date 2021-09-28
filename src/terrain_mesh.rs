@@ -7,10 +7,16 @@ pub struct TerrainMeshOptions {
     pub height_scale: f32,
 }
 
-pub struct TerrainTile {
-    pub x: u32,
-    pub y: u32,
+
+#[derive(Debug)]
+pub struct TileInfo {
+    pub base_lat: f64,
+    pub base_lon: f64,
+    pub x_offset: u32,
+    pub y_offset: u32,
     pub z: u32,
+    pub topo_filename: String,
+    pub image_filename: String,
 }
 
 fn get_normal(v1: &[f32; 3], v2: &[f32; 3], v3: &[f32; 3]) -> [f32; 3] {
@@ -36,11 +42,7 @@ fn sample_heightmap(
     heightmap: &lerc::LercDataset,
     mesh_options: &TerrainMeshOptions,
 ) -> (f32, [f32; 3]) {
-    let factor = (256. / (heightmap.data_range.z_max - heightmap.data_range.z_min)) as f32;
-
-    let height = (get_height(x, y, heightmap) - heightmap.data_range.z_min as f32)
-        * factor
-        * mesh_options.height_scale;
+    let height = get_height(x, y, heightmap) * mesh_options.height_scale;
 
     let target = [0., height, 0.];
     let right = [
@@ -99,12 +101,12 @@ pub fn mesh_from_heightmap(
     let lerc_dataset = lerc::decode_file(File::open(filename).unwrap());
 
     if let Ok(dataset) = lerc_dataset {
-        println!(
-            "Info: {:?} / Data Range: {:?} / Data length: {}",
-            dataset.info,
-            dataset.data_range,
-            dataset.data.len()
-        );
+        // println!(
+        //     "Info: {:?} / Data Range: {:?} / Data length: {}",
+        //     dataset.info,
+        //     dataset.data_range,
+        //     dataset.data.len()
+        // );
 
         let mut vertices_vec = Vec::new();
         for y in 0..(mesh_options.length - 0) {
@@ -112,7 +114,7 @@ pub fn mesh_from_heightmap(
                 let (height, normal) = sample_heightmap(x, y, &dataset, &mesh_options);
                 let vertex = [
                     x as f32 * scale_factor,
-                    height * scale_factor,
+                    height,
                     y as f32 * scale_factor,
                 ];
                 let uv = [
@@ -137,10 +139,9 @@ pub fn setup_terrain(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
     asset_server: &Res<AssetServer>,
-    image_file: &str,
-    topo_file: &str,
+    tile_info: TileInfo
 ) {
-    let texture_handle: Handle<Texture> = asset_server.load(image_file);
+    let texture_handle: Handle<Texture> = asset_server.load(&tile_info.image_filename[7..]);
     let material_handle = materials.add(StandardMaterial {
         base_color_texture: Some(texture_handle),
         roughness: 1.,
@@ -150,14 +151,15 @@ pub fn setup_terrain(
         ..Default::default()
     });
 
-    let scale_factor = 0.3;
+    let n = 1. / ((tile_info.z - 9) * (tile_info.z - 9)) as f32;
+    let scale_factor = 0.3 * n;
 
     let vertices_vec = mesh_from_heightmap(
-        topo_file,
+        &tile_info.topo_filename,
         TerrainMeshOptions {
             width: LENGTH,
             length: WIDTH,
-            height_scale: 0.1,
+            height_scale: 0.002,
         },
         scale_factor,
     );
@@ -196,9 +198,11 @@ pub fn setup_terrain(
         .spawn_bundle(PbrBundle {
             transform: Transform {
                 translation: Vec3::new(
-                    -(WIDTH as f32 * scale_factor / 2.),
+                    ((tile_info.x_offset * (WIDTH - 1)) as f32 * scale_factor)
+                        - (WIDTH as f32 * 0.5 * 0.3),
                     0.,
-                    -(LENGTH as f32 * scale_factor / 2.),
+                    (tile_info.y_offset * (LENGTH - 1)) as f32 * scale_factor
+                        - (LENGTH as f32 * 0.5 * 0.3),
                 ),
                 ..Default::default()
             },
@@ -206,5 +210,5 @@ pub fn setup_terrain(
             material: material_handle,
             ..Default::default()
         })
-        .insert(TerrainTile { x: 0, y: 0, z: 0 });
+        .insert(tile_info);
 }
