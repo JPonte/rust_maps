@@ -85,8 +85,9 @@ fn generate_tile(
     materials: &mut ResMut<Assets<StandardMaterial>>,
     asset_server: &Res<AssetServer>,
 ) {
-    let path = format!("images/imagery_{}_{}_{}.jpeg", 2_u32.pow(z) - x - 1, y, z);
-    let texture_handle: Handle<Texture> = asset_server.load(&path[..]);
+    let path_str = format!("images/imagery_{}_{}_{}.jpeg", 2_u32.pow(z) - x - 1, y, z);
+    let path = std::path::Path::new(&path_str);
+    let texture_handle: Handle<Texture> = asset_server.load(path);
 
     let material = materials.add(StandardMaterial {
         roughness: 1.,
@@ -229,8 +230,7 @@ pub fn new_camera_motion_system(
         for event in events.iter() {
             match event {
                 &MouseEvents::Drag(delta) => {
-                    let drag_speed =
-                        20. * ((camera.zoom - GLOBE_RADIUS) / (MAX_DIST - GLOBE_RADIUS)).powi(1);
+                    let drag_speed = 20. * (camera.zoom - GLOBE_RADIUS) / (MAX_DIST - GLOBE_RADIUS);
                     camera.x -= delta.x * time.delta_seconds() * drag_speed;
                     camera.y += delta.y * time.delta_seconds() * drag_speed;
 
@@ -249,7 +249,9 @@ pub fn new_camera_motion_system(
                     }
                 }
                 &MouseEvents::Zoom(delta) => {
-                    camera.zoom = (camera.zoom - delta * time.delta_seconds() * 400.)
+                    let zoom_speed =
+                        50000. * (camera.zoom - GLOBE_RADIUS) / (MAX_DIST - GLOBE_RADIUS);
+                    camera.zoom = (camera.zoom - delta * time.delta_seconds() * zoom_speed)
                         .clamp(GLOBE_RADIUS + DIST_BUFFER, MAX_DIST);
                 }
             }
